@@ -1,0 +1,202 @@
+﻿using HiMovies.Models;
+using HiMovies.ViewModels;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using NToastNotify;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace HiMovies.Controllers
+{
+    public class MovieController : Controller
+    {
+        private readonly AppDbContext context;
+        private readonly IToastNotification _toastNotification;
+        private List<string> _allowedext = new List<string> { ".png", ".jpg" };
+        private long _maxLengthimg = 1048576;
+
+
+                public MovieController(AppDbContext context , IToastNotification toastNotification)
+        {
+            this.context = context;
+            this._toastNotification = toastNotification;
+        }
+         public async Task<IActionResult> Index()
+
+        {
+            var Movie =await context.Movies.OrderByDescending(r=>r.Rate).ToListAsync();
+            if (Movie == null) {
+                _toastNotification.AddErrorToastMessage("there is no movie");
+            }
+            return View(Movie);
+        }
+        public async Task<IActionResult> Create()
+
+        {
+            var viewModel = new MovieVM
+            {
+                genres = await context.Genres.OrderBy(b => b.name).ToListAsync()
+            };
+            return View("MovieForm",viewModel);
+        }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create(MovieVM movie)
+
+        {
+            if (!ModelState.IsValid)
+            {
+                 movie.genres= await context.Genres.OrderBy(b => b.name).ToListAsync();
+                return View("MovieForm", movie);
+            }
+
+            var files = Request.Form.Files;          
+            if (!files.Any())
+            {                 
+                movie.genres= await context.Genres.OrderBy(b => b.name).ToListAsync();              
+                ModelState.AddModelError("Poster", "Please select poster image");           
+                return View("MovieForm", movie);
+             }
+
+            var poster = files.FirstOrDefault();
+
+            if (!_allowedext.Contains(Path.GetExtension(poster.FileName).ToLower()))
+            {
+                movie.genres = await context.Genres.OrderBy(b => b.name).ToListAsync();
+                ModelState.AddModelError("Poster", "Select only jpg or png");
+                return View("MovieForm", movie);
+            }
+            if(poster.Length>_maxLengthimg)
+            {
+                movie.genres = await context.Genres.OrderBy(b => b.name).ToListAsync();
+                ModelState.AddModelError("Poster", "maximum 1 MB");
+                return View("MovieForm",movie);
+            }
+            using var stream = new MemoryStream();
+            await poster.CopyToAsync(stream);
+            var movie1 = new Movie
+            {
+                Title = movie.Title,
+                GenreId = movie.GenreId,
+                Year = movie.Year,
+                Rate = movie.Rate,
+                 Storeline=movie.Storeline,
+                Poster = stream.ToArray()
+            };
+            context.Movies.Add(movie1);
+            context.SaveChanges();
+            _toastNotification.AddSuccessToastMessage("Created Succesfully");
+            return RedirectToAction(nameof(Index));
+        }
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            var movie = await context.Movies.FindAsync(id);
+            if (movie == null)
+            {
+                return NotFound();
+            }
+            var viewModel = new MovieVM
+            {
+                Id = movie.Id,
+                Title = movie.Title,
+                GenreId = movie.GenreId,
+                Year = movie.Year,
+                Rate = movie.Rate,
+                Storeline = movie.Storeline,
+                Poster = movie.Poster,
+                genres = await context.Genres.OrderBy(b => b.name).ToListAsync()
+            };
+            return View("MovieForm",viewModel);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Edit(MovieVM movie)
+        {
+            if (!ModelState.IsValid)
+            {
+                movie.genres = await context.Genres.OrderBy(b => b.name).ToListAsync();
+                return View("MovieForm", movie);
+            }
+            var _movie = await context.Movies.FindAsync(movie.Id);
+          
+            if (_movie == null)
+            {
+                return NotFound();
+            }
+            var files = Request.Form.Files;
+            
+            if (files.Any())
+            {
+                var poster = files.FirstOrDefault();
+                using var stream = new MemoryStream();
+                await poster.CopyToAsync(stream);
+                movie.Poster = stream.ToArray();
+            if (!_allowedext.Contains(Path.GetExtension(poster.FileName).ToLower()))
+            {
+                movie.genres = await context.Genres.OrderBy(b => b.name).ToListAsync();
+                ModelState.AddModelError("Poster", "Select only jpg or png");
+                return View("MovieForm", movie);
+            }
+            if (poster.Length > _maxLengthimg)
+            {
+                movie.genres = await context.Genres.OrderBy(b => b.name).ToListAsync();
+                ModelState.AddModelError("Poster", "maximum 1 MB");
+                return View("MovieForm", movie);
+            }
+                _movie.Poster = movie.Poster;
+            }
+            
+
+            _movie.Id = movie.Id;
+            _movie.Title = movie.Title;
+            _movie.GenreId = movie.GenreId;
+            _movie.Year = movie.Year;
+            _movie.Rate = movie.Rate;
+            _movie.Storeline = movie.Storeline;
+            context.SaveChanges();
+            _toastNotification.AddSuccessToastMessage("Done");
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            var movie=await context.Movies.Include(g=>g.Genre).SingleOrDefaultAsync(s=>s.Id==id);
+            if (movie == null)
+            {
+                return NotFound();
+            }
+
+            return View(movie);
+
+        }
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            var movie = await context.Movies.FindAsync(id);
+            if (movie == null)
+            {
+                return NotFound();
+            }
+            context.Movies.Remove(movie);
+            context.SaveChanges();
+            return Ok();
+
+        }
+
+    }
+}
